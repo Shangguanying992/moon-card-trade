@@ -713,7 +713,7 @@ class HttpError extends Error {
     return json(200, { current_period: period, total_players: playersTotal, cards });
   }
 
-  async function handle(request) {
+  async function _handle(request) {
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
@@ -746,6 +746,13 @@ class HttpError extends Error {
       if (e instanceof HttpError) return json(e.status, { error: e.error });
       return json(500, { error: '服务器内部错误', detail: String((e && e.message) || e) });
     }
+  }
+
+  async function handle(request) {
+    const t0 = Date.now();
+    const res = await _handle(request);
+    res.headers.set('x-process-ms', String(Date.now() - t0));
+    return res;
   }
 
   return { handle };
