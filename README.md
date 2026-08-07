@@ -37,6 +37,9 @@ npm start            # 启动本地服务器（默认 http://localhost:8787）
    - 把 `public/` 内容推到 GitHub 仓库（公开仓库），在仓库设置启用 GitHub Pages
    - 在 `public/config.js` 里把 `window.__API_BASE__` 改为你的 Worker 地址（如 `https://moon-card-trade-api.xxx.workers.dev`），本地开发留空即可
    - 注意：GitHub Pages 只托管静态文件，匹配、锁定、确认等都必须走上面的 Worker API
+   - Pages 用 GitHub Actions 发布（分支部署只支持 root/docs，不支持 public/）：
+     - 仓库 Settings → Pages → Build and deployment → Source 选 **GitHub Actions**
+     - 项目已内置 [`.github/workflows/pages.yml`](.github/workflows/pages.yml)，推送 main 后自动构建并发布 `public/`
 
 ## 日常更新（上线后）
 
