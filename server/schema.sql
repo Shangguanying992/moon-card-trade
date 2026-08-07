@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS players (
   nickname TEXT NOT NULL,
   device_hash TEXT NOT NULL,
   last_update_period TEXT NOT NULL,
+  nickname_updated_at TEXT,
   completed_trades INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL,
   PRIMARY KEY (server, uid)

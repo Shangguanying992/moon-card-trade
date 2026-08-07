@@ -438,3 +438,49 @@ test('周期与过期', async (t) => {
     assert.equal(refreshed.json.stale, false);
   });
 });
+
+test('昵称修改（30 天冷却）', async (t) => {
+  await t.test('未登记设备不能改昵称，非法昵称被拒绝', async () => {
+    const { app } = await setup();
+    assert.equal(
+      (await call(app, 'PATCH', '/api/players/me/nickname', { device: 'unknown-device-xyz', body: { nickname: '新人' } })).status,
+      401
+    );
+    await register(app, DEV_A, OFFICIAL_A, 'official', '原名');
+    assert.equal(
+      (await call(app, 'PATCH', '/api/players/me/nickname', { device: DEV_A, body: { nickname: '  ' } })).status,
+      400
+    );
+    assert.equal(
+      (await call(app, 'PATCH', '/api/players/me/nickname', { device: DEV_A, body: { nickname: 'x'.repeat(21) } })).status,
+      400
+    );
+  });
+
+  await t.test('首次修改成功；30 天内第二次被拒并提示剩余天数；30 天后可再改', async () => {
+    const { db } = await setup(NOW);
+    const app0 = createApp({ db, adminKey: 'k', now: NOW });
+    await register(app0, DEV_A, OFFICIAL_A, 'official', '原名');
+    const r1 = await call(app0, 'PATCH', '/api/players/me/nickname', { device: DEV_A, body: { nickname: '新名' } });
+    assert.equal(r1.status, 200);
+    assert.equal(r1.json.player.nickname, '新名');
+    assert.ok(r1.json.player.nickname_updated_at, '修改后应记录修改时间');
+
+    const r2 = await call(app0, 'PATCH', '/api/players/me/nickname', { device: DEV_A, body: { nickname: '又改名' } });
+    assert.equal(r2.status, 429);
+    assert.match(r2.json.error, /30/);
+
+    const app1 = createApp({ db, adminKey: 'k', now: new Date(NOW.getTime() + 31 * 86400000) });
+    const r3 = await call(app1, 'PATCH', '/api/players/me/nickname', { device: DEV_A, body: { nickname: '第三名' } });
+    assert.equal(r3.status, 200);
+    assert.equal(r3.json.player.nickname, '第三名');
+  });
+
+  await t.test('同设备同 UID 重复登记不再悄悄改昵称', async () => {
+    const { app } = await setup();
+    await register(app, DEV_A, OFFICIAL_A, 'official', '原名');
+    await register(app, DEV_A, OFFICIAL_A, 'official', '试图改名');
+    const me = await call(app, 'GET', '/api/me', { device: DEV_A });
+    assert.equal(me.json.player.nickname, '原名');
+  });
+});

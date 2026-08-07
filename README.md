@@ -44,6 +44,7 @@ npm start            # 启动本地服务器（默认 http://localhost:8787）
 |---|---|---|
 | POST | `/api/players` | 登记 / 接管档案（昵称 + UID + 服务器） |
 | PATCH | `/api/players/me/collection` | 更新 22 张持有数量 |
+| PATCH | `/api/players/me/nickname` | 修改昵称（30 天冷却，首次修改后 30 天内不可再改） |
 | GET | `/api/me` | 我的档案 + 帖子 + 申请 + 提醒 |
 | GET | `/api/posts` | 开放意向帖（公开字段不含 UID，`?mine=1` 返回自己帖子） |
 | POST | `/api/posts` | 发意向帖 |
@@ -65,6 +66,10 @@ npm start            # 启动本地服务器（默认 http://localhost:8787）
 - 匹配必须同服务器（官服与 B 服不能联机交换）
 - 周期 = 每月（幻想真境剧诗每月 1 日重置）；开放/匹配中的帖子在下一期自动过期归档，超过一期末更新的档案降权并提示
 - 交换真实性靠「自报 + 持有校验 + 双人报告 + 管理员」保障，平台不验证游戏内是否真实交换
+- 昵称创建后 30 天内仅可修改一次，之后每 30 天可改一次；UID 创建后不可修改（多 UID 档案后续支持）
+
+> 若 D1 数据库已建过表（早于昵称冷却功能），需先执行：
+> `wrangler d1 execute moon-card-trade --remote --command "ALTER TABLE players ADD COLUMN nickname_updated_at TEXT"`
 
 ## 成本估算
 

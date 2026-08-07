@@ -10,6 +10,7 @@ const SERVERS = {
 };
 const DEVICE_RE = /^[A-Za-z0-9_-]{8,128}$/;
 const REPORT_REASONS = ['已完成', '信息过期', '信息不实', '争议'];
+const NICKNAME_COOLDOWN_MS = 30 * 24 * 3600 * 1000;
 
 function isCard(id) {
   return Number.isInteger(id) && id >= 1 && id <= 22;
@@ -133,6 +134,7 @@ function createApp({ db, adminKey = 'change-me-admin-key', now }) {
       server: p.server,
       nickname: p.nickname,
       last_update_period: p.last_update_period,
+      nickname_updated_at: p.nickname_updated_at,
       completed_trades: Number(p.completed_trades),
       stale: p.last_update_period < period,
     };
@@ -216,8 +218,7 @@ function createApp({ db, adminKey = 'change-me-admin-key', now }) {
     const existing = await getPlayer(server, uid);
     let takeover = false;
     if (existing && existing.device_hash === hash) {
-      await db.prepare('UPDATE players SET nickname = ? WHERE server = ? AND uid = ?')
-        .bind(nickname, server, uid).run();
+      // 同设备重复登记是幂等操作：不悄悄改昵称（昵称走 PATCH /api/players/me/nickname，带 30 天冷却）
     } else if (existing) {
       takeover = true;
       const snapshot = {
@@ -230,7 +231,7 @@ function createApp({ db, adminKey = 'change-me-admin-key', now }) {
         'INSERT INTO audit (server, uid, snapshot, reason, created_at) VALUES (?, ?, ?, ?, ?)'
       ).bind(server, uid, JSON.stringify(snapshot), 'takeover', nowIso).run();
       await db.prepare(
-        `UPDATE players SET nickname = ?, device_hash = ?, last_update_period = ?, completed_trades = 0
+        `UPDATE players SET nickname = ?, device_hash = ?, last_update_period = ?, nickname_updated_at = NULL, completed_trades = 0
          WHERE server = ? AND uid = ?`
       ).bind(nickname, hash, period, server, uid).run();
       await db.prepare('DELETE FROM card_counts WHERE server = ? AND uid = ?').bind(server, uid).run();
@@ -281,6 +282,24 @@ function createApp({ db, adminKey = 'change-me-admin-key', now }) {
       player: playerPublic(await getPlayer(player.server, player.uid)),
       collection: await getCounts(player.server, player.uid),
     });
+  }
+
+  async function updateNickname(request) {
+    const { player } = await requirePlayer(request);
+    const body = await readJson(request);
+    const nickname = String(body.nickname || '').trim();
+    if (!nickname || nickname.length > 20) throw new HttpError(400, '昵称必须为 1~20 个字符');
+    const last = player.nickname_updated_at;
+    if (last) {
+      const elapsed = current.getTime() - new Date(last).getTime();
+      if (elapsed < NICKNAME_COOLDOWN_MS) {
+        const days = Math.ceil((NICKNAME_COOLDOWN_MS - elapsed) / 86400000);
+        throw new HttpError(429, `昵称 30 天内仅可修改一次，还需等待 ${days} 天`);
+      }
+    }
+    await db.prepare('UPDATE players SET nickname = ?, nickname_updated_at = ? WHERE server = ? AND uid = ?')
+      .bind(nickname, nowIso, player.server, player.uid).run();
+    return json(200, { player: playerPublic(await getPlayer(player.server, player.uid)) });
   }
 
   async function me(request) {
@@ -661,6 +680,7 @@ function createApp({ db, adminKey = 'change-me-admin-key', now }) {
       if (method === 'GET' && path === '/api/me') return await me(request);
       if (method === 'POST' && path === '/api/players') return await register(request);
       if (method === 'PATCH' && path === '/api/players/me/collection') return await updateCollection(request);
+      if (method === 'PATCH' && path === '/api/players/me/nickname') return await updateNickname(request);
       if (method === 'GET' && path === '/api/posts') return await listPosts(request);
       if (method === 'POST' && path === '/api/posts') return await createPost(request);
       let m = path.match(/^\/api\/posts\/(\d+)$/);

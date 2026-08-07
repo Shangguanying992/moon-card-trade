@@ -533,8 +533,16 @@ async function renderMe() {
         <h2>登记我的档案</h2>
         <p class="hint">以 UID 长期保存持有记录，方便后续交换。换设备后用同一 UID 重新登记即「接管」旧档案（旧数据保留可回滚）。</p>
         <form id="reg-form" class="form-grid" style="margin-top:14px">
-          <div class="field"><label>昵称</label><input id="r-nick" maxlength="20" placeholder="游戏内昵称" required></div>
-          <div class="field"><label>UID</label><input id="r-uid" maxlength="10" inputmode="numeric" placeholder="官服 1~3 开头 9 位" required></div>
+          <div class="field">
+            <label>昵称</label>
+            <input id="r-nick" maxlength="20" placeholder="游戏内昵称" required>
+            <p class="hint">昵称创建后 30 天内仅可修改一次，之后每 30 天可改一次。</p>
+          </div>
+          <div class="field">
+            <label>UID</label>
+            <input id="r-uid" maxlength="10" inputmode="numeric" placeholder="官服 1~3 开头 9 位" required>
+            <p class="hint">UID 创建后不可修改；多个 UID 的需求后续支持。</p>
+          </div>
           <div class="field"><label>服务器</label><select id="r-server">
             <option value="official">官服（UID 1~3 开头）</option>
             <option value="bili">B服（UID 5 开头）</option>
@@ -615,8 +623,14 @@ async function renderMe() {
         <span class="badge muted">${SERVERS[me.player.server]}</span>
         <span class="badge done">已完成 ${me.player.completed_trades} 笔交换</span>
         <span class="hint">最后更新：${esc(me.player.last_update_period)}</span>
+        <button class="btn small" id="edit-nick-btn">改昵称</button>
       </div>
-      <p class="hint">换设备时用同一 UID 重新登记即可接管档案。</p>
+      <div class="filters" id="nick-form" style="display:none;margin-top:8px">
+        <input id="nick-input" maxlength="20" value="${esc(me.player.nickname)}">
+        <button class="btn small primary" id="nick-save">保存</button>
+        <button class="btn small" id="nick-cancel">取消</button>
+      </div>
+      <p class="hint" id="nick-msg">UID 创建后不可修改；昵称 30 天内仅可修改一次，之后每 30 天可改一次。换设备时用同一 UID 重新登记即可接管档案。</p>
     </div>
 
     <div class="card-box">
@@ -663,6 +677,28 @@ async function renderMe() {
     const id = Number(b.dataset.dec);
     if (state.countsDraft[id] > 0) { state.countsDraft[id]--; renderMe(); }
   }));
+  document.getElementById('edit-nick-btn').addEventListener('click', () => {
+    document.getElementById('nick-form').style.display = '';
+    document.getElementById('edit-nick-btn').style.display = 'none';
+    document.getElementById('nick-input').focus();
+  });
+  document.getElementById('nick-cancel').addEventListener('click', () => {
+    document.getElementById('nick-form').style.display = 'none';
+    document.getElementById('edit-nick-btn').style.display = '';
+    document.getElementById('nick-msg').innerHTML = 'UID 创建后不可修改；昵称 30 天内仅可修改一次，之后每 30 天可改一次。换设备时用同一 UID 重新登记即可接管档案。';
+  });
+  document.getElementById('nick-save').addEventListener('click', async () => {
+    const msg = document.getElementById('nick-msg');
+    try {
+      await api('PATCH', '/api/players/me/nickname', { nickname: document.getElementById('nick-input').value });
+      toast('昵称已修改', 'ok');
+      state.countsDraft = null;
+      await loadMe(true);
+      renderMe();
+    } catch (err) {
+      msg.innerHTML = `<span class="err">${esc(err.message)}</span>`;
+    }
+  });
   document.getElementById('save-counts').addEventListener('click', async () => {
     try {
       await api('PATCH', '/api/players/me/collection', { counts: state.countsDraft });
