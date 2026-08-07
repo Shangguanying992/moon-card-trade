@@ -1,8 +1,7 @@
-'use strict';
-// Cloudflare Worker 入口：wrangler dev / deploy 时使用
-const { createApp } = require('./app.js');
+// Cloudflare Worker 入口（ES Module 格式）：wrangler deploy 时使用
+import { createApp } from './app.js';
 
-module.exports = {
+export default {
   async fetch(request, env) {
     const app = createApp({ db: env.DB, adminKey: env.ADMIN_KEY || 'change-me-admin-key' });
     return app.handle(request);

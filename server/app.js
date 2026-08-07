@@ -1,5 +1,4 @@
 'use strict';
-const crypto = require('node:crypto');
 const CARDS = require('../cards.json');
 
 const CARD_IDS = CARDS.map((c) => c.id);
@@ -22,8 +21,9 @@ function lastId(info) {
   return info.meta.lastInsertRowid ?? info.meta.last_row_id;
 }
 
-function hashDevice(device) {
-  return crypto.createHash('sha256').update(device).digest('hex');
+async function hashDevice(device) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(device));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 function periodOf(date) {
@@ -90,7 +90,7 @@ class HttpError extends Error {
 
   async function requirePlayer(request) {
     const d = requireDevice(request);
-    const p = await db.prepare('SELECT * FROM players WHERE device_hash = ?').bind(hashDevice(d)).first();
+    const p = await db.prepare('SELECT * FROM players WHERE device_hash = ?').bind(await hashDevice(d)).first();
     if (!p) throw new HttpError(401, '请先登记你的 UID 档案');
     return { player: p, device: d };
   }
@@ -217,7 +217,7 @@ class HttpError extends Error {
     if (!SERVERS[server]) throw new HttpError(400, '服务器不合法');
     if (!SERVERS[server].pattern.test(uid)) throw new HttpError(400, 'UID 与该服务器不匹配');
     if (!nickname) throw new HttpError(400, '昵称不能为空');
-    const hash = hashDevice(device);
+    const hash = await hashDevice(device);
     const existing = await getPlayer(server, uid);
     let takeover = false;
     if (existing && existing.device_hash === hash) {
@@ -412,7 +412,7 @@ class HttpError extends Error {
     if (!row) throw new HttpError(404, '帖子不存在');
     const { flaggedPosts } = await flaggedTargets();
     const device = deviceOf(request);
-    const player = device ? await db.prepare('SELECT * FROM players WHERE device_hash = ?').bind(hashDevice(device)).first() : null;
+    const player = device ? await db.prepare('SELECT * FROM players WHERE device_hash = ?').bind(await hashDevice(device)).first() : null;
     const isOwner = player && player.server === row.owner_server && player.uid === row.owner_uid;
     const apps = await applicationsOf(id);
     const isApplicant = player && apps.some(
@@ -607,7 +607,7 @@ class HttpError extends Error {
     }
     const info = await db.prepare(
       'INSERT INTO reports (target_type, target_id, reporter_hash, reason, status, created_at) VALUES (?, ?, ?, ?, ?, ?)'
-    ).bind(targetType, targetId, hashDevice(device), reasonStr, 'pending', nowIso).run();
+    ).bind(targetType, targetId, await hashDevice(device), reasonStr, 'pending', nowIso).run();
     const count = await db.prepare(
       `SELECT COUNT(DISTINCT reporter_hash) AS c FROM reports
        WHERE target_type = ? AND target_id = ? AND status = 'pending'`
