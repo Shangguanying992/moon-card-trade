@@ -102,12 +102,12 @@ class HttpError extends Error {
   }
 
   async function flaggedTargets() {
-    const rows = await db.prepare(
+    const rows = (await db.prepare(
       `SELECT target_type, target_id FROM reports
        WHERE status='pending'
        GROUP BY target_type, target_id
        HAVING COUNT(DISTINCT reporter_hash) >= 2`
-    ).all();
+    ).all()).results;
     const posts = new Set();
     const players = new Set();
     for (const r of rows) {
@@ -118,9 +118,9 @@ class HttpError extends Error {
   }
 
   async function getCounts(server, uid) {
-    const rows = await db.prepare(
+    const rows = (await db.prepare(
       'SELECT card_id, count FROM card_counts WHERE server = ? AND uid = ?'
-    ).bind(server, uid).all();
+    ).bind(server, uid).all()).results;
     const out = {};
     for (const id of CARD_IDS) out[id] = 0;
     for (const r of rows) out[r.card_id] = Number(r.count);
@@ -170,11 +170,11 @@ class HttpError extends Error {
   }
 
   async function applicationsOf(postId) {
-    return await db.prepare(
+    return (await db.prepare(
       `SELECT a.*, pl.nickname FROM applications a
        JOIN players pl ON pl.server = a.applicant_server AND pl.uid = a.applicant_uid
        WHERE a.post_id = ? ORDER BY a.id`
-    ).bind(postId).all();
+    ).bind(postId).all()).results;
   }
 
   async function postFull(row) {
@@ -308,20 +308,20 @@ class HttpError extends Error {
   async function me(request) {
     const { player } = await requirePlayer(request);
     await expireOldPosts();
-    const myRows = await db.prepare(
+    const myRows = (await db.prepare(
       `SELECT p.*, pl.nickname, pl.completed_trades, pl.last_update_period
        FROM posts p JOIN players pl ON pl.server = p.owner_server AND pl.uid = p.owner_uid
        WHERE p.owner_server = ? AND p.owner_uid = ? ORDER BY p.updated_at DESC, p.id DESC`
-    ).bind(player.server, player.uid).all();
+    ).bind(player.server, player.uid).all()).results;
     const myPosts = await Promise.all(myRows.map((r) => postFull(r)));
-    const myApps = await db.prepare(
+    const myApps = (await db.prepare(
       `SELECT a.*, p.offered_card AS post_offered_card, p.want_mode, p.wanted_card, p.status AS post_status,
               pl.nickname AS owner_nickname
        FROM applications a
        JOIN posts p ON p.id = a.post_id
        JOIN players pl ON pl.server = p.owner_server AND pl.uid = p.owner_uid
        WHERE a.applicant_server = ? AND a.applicant_uid = ? ORDER BY a.id DESC`
-    ).bind(player.server, player.uid).all();
+    ).bind(player.server, player.uid).all()).results;
     const reminders = [];
     for (const post of myPosts) {
       if (post.remind_poster && post.status === 'matched' && post.locked_application) {
@@ -364,18 +364,18 @@ class HttpError extends Error {
     const mine = new URL(request.url).searchParams.get('mine') === '1';
     if (mine) {
       const { player } = await requirePlayer(request);
-      const rows = await db.prepare(
+      const rows = (await db.prepare(
         `SELECT p.*, pl.nickname, pl.completed_trades, pl.last_update_period
          FROM posts p JOIN players pl ON pl.server = p.owner_server AND pl.uid = p.owner_uid
          WHERE p.owner_server = ? AND p.owner_uid = ? ORDER BY p.updated_at DESC, p.id DESC`
-      ).bind(player.server, player.uid).all();
+      ).bind(player.server, player.uid).all()).results;
       return json(200, { posts: await Promise.all(rows.map((r) => postFull(r))), current_period: period });
     }
-    const rows = await db.prepare(
+    const rows = (await db.prepare(
       `SELECT p.*, pl.nickname, pl.completed_trades, pl.last_update_period
        FROM posts p JOIN players pl ON pl.server = p.owner_server AND pl.uid = p.owner_uid
        WHERE p.status = 'open' AND p.period = ? ORDER BY p.updated_at DESC, p.id DESC`
-    ).bind(period).all();
+    ).bind(period).all()).results;
     const posts = rows
       .filter((r) => !flaggedPosts.has(r.id) && !flaggedPlayers.has(`${r.owner_server}|${r.owner_uid}`))
       .map((r) => postPublic(r, r));
@@ -641,11 +641,11 @@ class HttpError extends Error {
 
   async function adminListReports(request) {
     requireAdmin(request);
-    const reports = await db.prepare(
+    const reports = (await db.prepare(
       `SELECT r.*, p.status AS post_status, p.owner_uid AS post_owner_uid
        FROM reports r LEFT JOIN posts p ON r.target_type = 'post' AND p.id = r.target_id
        ORDER BY r.created_at DESC`
-    ).all();
+    ).all()).results;
     return json(200, { reports });
   }
 
@@ -670,12 +670,12 @@ class HttpError extends Error {
   async function stats() {
     await expireOldPosts();
     const playersTotal = Number(await db.prepare('SELECT COUNT(*) AS c FROM players').first().c);
-    const rows = await db.prepare(
+    const rows = (await db.prepare(
       `SELECT card_id,
               SUM(CASE WHEN count = 0 THEN 1 ELSE 0 END) AS missing,
               COUNT(*) AS total
        FROM card_counts GROUP BY card_id`
-    ).all();
+    ).all()).results;
     const byId = {};
     for (const r of rows) byId[r.card_id] = r;
     const cards = CARD_IDS.map((id) => {

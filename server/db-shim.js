@@ -81,7 +81,8 @@ class Statement {
     return new Statement(this.raw, this.sql, params);
   }
   all() {
-    return this.raw.prepare(this.sql).all(...this.params);
+    // 与 Cloudflare D1 的返回形状保持一致：{ results: [...] }
+    return { results: this.raw.prepare(this.sql).all(...this.params) };
   }
   first() {
     return this.raw.prepare(this.sql).get(...this.params);
