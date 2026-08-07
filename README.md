@@ -35,8 +35,20 @@ npm start            # 启动本地服务器（默认 http://localhost:8787）
    - `wrangler deploy` 部署 Worker，并在 Cloudflare 控制台设置环境变量 `ADMIN_KEY`
 2. **前端**：
    - 把 `public/` 内容推到 GitHub 仓库（公开仓库），在仓库设置启用 GitHub Pages
-   - 在 `public/index.html` 里把 `window.__API_BASE__` 改为你的 Worker 地址（如 `https://moon-card-trade-api.xxx.workers.dev`），本地开发留空即可
+   - 在 `public/config.js` 里把 `window.__API_BASE__` 改为你的 Worker 地址（如 `https://moon-card-trade-api.xxx.workers.dev`），本地开发留空即可
    - 注意：GitHub Pages 只托管静态文件，匹配、锁定、确认等都必须走上面的 Worker API
+
+## 日常更新（上线后）
+
+```bash
+# 1. 前端改动：提交并推送，GitHub Pages 自动重新部署
+bash scripts/update-site.sh "这次改了什么"
+
+# 2. 后端改动（改过 server/ 或 wrangler.toml 时才需要）：
+npx wrangler deploy
+```
+
+- 换后端地址 / 域名：只改 `public/config.js` 里的 `window.__API_BASE__`，再执行一次更新脚本即可。
 
 ## API 一览
 

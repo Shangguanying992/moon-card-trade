@@ -6,6 +6,6 @@
   "scripts": {
     "start": "node server/local.js",
     "test": "node --no-warnings --test",
-    "check": "node --check server/app.js && node --check server/db-shim.js && node --check server/local.js && node --check server/index.js && node --check public/app.js"
+    "check": "node --check server/app.js && node --check server/db-shim.js && node --check server/local.js && node --check server/index.js && node --check public/app.js && node --check public/config.js"
   }
 }
