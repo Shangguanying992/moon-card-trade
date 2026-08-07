@@ -338,7 +338,7 @@ async function renderPost(id) {
       </dl>
       ${body}
       <div class="report-form">
-        <h3 style="font-size:.95rem">报告问题</h3>
+        <h3 style="font-size:.95rem">发现信息有误/过期？你可以报告问题</h3>
         <div class="filters" style="margin-top:8px">
           <select id="r-reason">${REPORT_REASONS.map((r) => `<option>${r}</option>`).join('')}</select>
           <button class="btn small danger" id="r-btn">报告</button>
