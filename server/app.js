@@ -44,6 +44,7 @@ class HttpError extends Error {
   const period = periodOf(current);
   const nowIso = current.toISOString();
   const adminFails = new Map();
+  let expiredPeriod = null;
 
   function json(status, body) {
     return new Response(JSON.stringify(body), {
@@ -96,9 +97,11 @@ class HttpError extends Error {
   }
 
   async function expireOldPosts() {
+    if (expiredPeriod === period) return; // 同一周期内只需清理一次
     await db.prepare(
       "UPDATE posts SET status='expired', updated_at=? WHERE status IN ('open','matched') AND period < ?"
     ).bind(nowIso, period).run();
+    expiredPeriod = period;
   }
 
   async function flaggedTargets() {
@@ -177,11 +180,11 @@ class HttpError extends Error {
     ).bind(postId).all()).results;
   }
 
-  async function postFull(row) {
+  async function postFull(row, appsOverride) {
     const post = postPublic(row, row);
     post.uid = row.owner_uid;
     post.remind_poster = Number(row.remind_poster) === 1;
-    const apps = await applicationsOf(row.id);
+    const apps = appsOverride || await applicationsOf(row.id);
     post.applications = apps.map((a) => ({
       id: a.id,
       applicant_uid: a.applicant_uid,
@@ -313,7 +316,18 @@ class HttpError extends Error {
        FROM posts p JOIN players pl ON pl.server = p.owner_server AND pl.uid = p.owner_uid
        WHERE p.owner_server = ? AND p.owner_uid = ? ORDER BY p.updated_at DESC, p.id DESC`
     ).bind(player.server, player.uid).all()).results;
-    const myPosts = await Promise.all(myRows.map((r) => postFull(r)));
+    const appRows = (await db.prepare(
+      `SELECT a.*, pl.nickname FROM applications a
+       JOIN players pl ON pl.server = a.applicant_server AND pl.uid = a.applicant_uid
+       WHERE a.post_id IN (SELECT id FROM posts WHERE owner_server = ? AND owner_uid = ?)
+       ORDER BY a.id`
+    ).bind(player.server, player.uid).all()).results;
+    const appsByPost = new Map();
+    for (const a of appRows) {
+      if (!appsByPost.has(a.post_id)) appsByPost.set(a.post_id, []);
+      appsByPost.get(a.post_id).push(a);
+    }
+    const myPosts = await Promise.all(myRows.map((r) => postFull(r, appsByPost.get(r.id) || [])));
     const myApps = (await db.prepare(
       `SELECT a.*, p.offered_card AS post_offered_card, p.want_mode, p.wanted_card, p.status AS post_status,
               pl.nickname AS owner_nickname
@@ -369,7 +383,18 @@ class HttpError extends Error {
          FROM posts p JOIN players pl ON pl.server = p.owner_server AND pl.uid = p.owner_uid
          WHERE p.owner_server = ? AND p.owner_uid = ? ORDER BY p.updated_at DESC, p.id DESC`
       ).bind(player.server, player.uid).all()).results;
-      return json(200, { posts: await Promise.all(rows.map((r) => postFull(r))), current_period: period });
+      const appRows = (await db.prepare(
+        `SELECT a.*, pl.nickname FROM applications a
+         JOIN players pl ON pl.server = a.applicant_server AND pl.uid = a.applicant_uid
+         WHERE a.post_id IN (SELECT id FROM posts WHERE owner_server = ? AND owner_uid = ?)
+         ORDER BY a.id`
+      ).bind(player.server, player.uid).all()).results;
+      const appsByPost = new Map();
+      for (const a of appRows) {
+        if (!appsByPost.has(a.post_id)) appsByPost.set(a.post_id, []);
+        appsByPost.get(a.post_id).push(a);
+      }
+      return json(200, { posts: await Promise.all(rows.map((r) => postFull(r, appsByPost.get(r.id) || []))), current_period: period });
     }
     const rows = (await db.prepare(
       `SELECT p.*, pl.nickname, pl.completed_trades, pl.last_update_period

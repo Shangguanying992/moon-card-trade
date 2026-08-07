@@ -551,9 +551,14 @@ function guideBox() {
 
 /* ---------------- 我的档案 ---------------- */
 async function renderMe() {
-  await loadMe(true);
-  if (!state.me) {
-    view(`
+  if (state.me) renderMeView(); // 先用缓存渲染，避免等待接口
+  try { await loadMe(true); } catch { /* 网络失败时保留缓存 */ }
+  if (!state.me) { renderRegisterForm(); return; }
+  renderMeView();
+}
+
+function renderRegisterForm() {
+  view(`
       <div class="card-box">
         <h2>登记我的档案</h2>
         <p class="hint">以 UID 长期保存持有记录，方便后续交换。换设备后用同一 UID 重新登记即「接管」旧档案（旧数据保留可回滚）。</p>
@@ -596,9 +601,9 @@ async function renderMe() {
         errBox.textContent = err.message;
       }
     });
-    return;
-  }
+}
 
+function renderMeView() {
   const me = state.me;
   const counts = me.collection;
   if (!state.countsDraft) state.countsDraft = { ...counts };
