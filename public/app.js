@@ -72,23 +72,35 @@ function fmtTime(iso) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-async function api(method, path, body) {
+async function api(method, path, body, timeoutMs = 10000) {
   const headers = {};
   if (state.device) headers['x-device-id'] = state.device;
   if (body !== undefined) headers['content-type'] = 'application/json';
-  const res = await fetch(API + path, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-  let json = null;
-  try { json = await res.json(); } catch { /* empty */ }
-  if (!res.ok) {
-    const e = new Error((json && json.error) || `请求失败（${res.status}）`);
-    e.status = res.status;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(API + path, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: ctrl.signal,
+    });
+    let json = null;
+    try { json = await res.json(); } catch { /* empty */ }
+    if (!res.ok) {
+      const e = new Error((json && json.error) || `请求失败（${res.status}）`);
+      e.status = res.status;
+      throw e;
+    }
+    return json;
+  } catch (e) {
+    if (e && e.name === 'AbortError') {
+      throw new Error('连接后端超时，请刷新重试；若频繁出现，可能是当前网络无法访问 Workers 服务');
+    }
     throw e;
+  } finally {
+    clearTimeout(timer);
   }
-  return json;
 }
 
 function miniCard(id, count) {
@@ -162,13 +174,21 @@ function currentRoute() {
 }
 
 /* ---------------- 列表 ---------------- */
-async function loadPosts() {
-  state.postsCache = await api('GET', '/api/posts');
+async function renderList(refresh = false) {
+  if (refresh || !state.postsCache) {
+    if (!state.postsCache) renderListFrame(null); // 先渲染框架，避免网络慢时卡在加载中
+    try {
+      state.postsCache = await api('GET', '/api/posts');
+    } catch (err) {
+      renderListFrame([], err.message);
+      return;
+    }
+  }
+  renderListFrame(state.postsCache.posts || []);
 }
 
-async function renderList(refresh = false) {
-  if (refresh || !state.postsCache) await loadPosts();
-  let posts = state.postsCache.posts || [];
+function renderListFrame(rawPosts, error) {
+  let posts = rawPosts || [];
   if (state.serverTab !== 'all') posts = posts.filter((p) => p.server === state.serverTab);
   if (state.search) {
     const q = state.search.trim().toLowerCase();
@@ -187,7 +207,8 @@ async function renderList(refresh = false) {
 
   const banners = [];
   if (state.me && state.me.stale) {
-    banners.push(`<div class="banner warn">新一期（${esc(data.current_period)}）已开启，你的持有记录还是上一期的，请到 <a href="#/me">我的档案</a> 更新，否则帖子会被降权。</div>`);
+    const cur = state.postsCache ? state.postsCache.current_period : (state.stats ? state.stats.current_period : '');
+    banners.push(`<div class="banner warn">新一期（${esc(cur)}）已开启，你的持有记录还是上一期的，请到 <a href="#/me">我的档案</a> 更新，否则帖子会被降权。</div>`);
   }
   if (state.me && state.me.reminders && state.me.reminders.length) {
     banners.push(`<div class="banner info">你有 ${state.me.reminders.length} 笔交换被对方确认，请到 <a href="#/me">我的档案</a> 核对并更新记录。</div>`);
@@ -239,7 +260,11 @@ async function renderList(refresh = false) {
           <span>已完成 ${p.completed_trades} 笔交换</span>
         </div>
       </a>`).join('')
-    : `<div class="empty">${filterActive ? '没有符合筛选条件的帖子，试试清除筛牌' : '还没有符合条件的机会帖，去 <a href="#/new">发一个意向</a> 吧'}</div>`;
+    : error
+      ? `<div class="empty"><span class="err">${esc(error)}</span><div class="btn-row" style="justify-content:center"><a class="btn" href="#" onclick="location.reload()">重试</a></div></div>`
+      : rawPosts === null
+        ? '<div class="empty">加载中…</div>'
+        : `<div class="empty">${filterActive ? '没有符合筛选条件的帖子，试试清除筛牌' : '还没有符合条件的机会帖，去 <a href="#/new">发一个意向</a> 吧'}</div>`;
 
   view(`
     ${banners.join('')}
@@ -804,11 +829,20 @@ async function renderAbout() {
 async function apiWithKey(method, path, key, body) {
   const headers = { 'x-admin-key': key };
   if (body !== undefined) headers['content-type'] = 'application/json';
-  const res = await fetch(API + path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
-  let json = null;
-  try { json = await res.json(); } catch { /* empty */ }
-  if (!res.ok) throw new Error((json && json.error) || `请求失败（${res.status}）`);
-  return json;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 10000);
+  try {
+    const res = await fetch(API + path, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined, signal: ctrl.signal });
+    let json = null;
+    try { json = await res.json(); } catch { /* empty */ }
+    if (!res.ok) throw new Error((json && json.error) || `请求失败（${res.status}）`);
+    return json;
+  } catch (e) {
+    if (e && e.name === 'AbortError') throw new Error('连接后端超时，请稍后重试');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /* ---------------- 路由 ---------------- */
@@ -823,7 +857,7 @@ async function route() {
     if (r.name === 'about') return await renderAbout();
     view('<div class="card-box"><p class="err">页面不存在</p></div>');
   } catch (err) {
-    view(`<div class="card-box"><p class="err">${esc(err.message)}</p><a class="btn" href="#/">返回列表</a></div>`);
+    view(`<div class="card-box"><p class="err">${esc(err.message)}</p><div class="btn-row"><a class="btn" href="#/">返回列表</a><a class="btn primary" href="#" onclick="location.reload()">重试</a></div></div>`);
   }
 }
 
@@ -870,8 +904,6 @@ document.addEventListener('click', async (e) => {
 window.addEventListener('hashchange', route);
 
 (async function init() {
-  await loadBase();
-  await loadMe(true);
   // 隐藏的管理入口：2 秒内连点站名 5 次进入 #/admin（页脚不再展示入口）
   let brandTaps = 0;
   let brandTapTimer = null;
@@ -886,5 +918,14 @@ window.addEventListener('hashchange', route);
       toast('已进入管理页', 'ok');
     }
   });
+  // 先渲染页面，再异步加载基础数据，避免网络慢时一直卡在加载中
   route();
+  loadBase().then(() => {
+    if (currentRoute().name === 'list') renderList(true);
+  });
+  loadMe(true).then(() => {
+    const n = currentRoute().name;
+    if (n === 'me') renderMe();
+    else if (n === 'list') renderList(true);
+  });
 })();
