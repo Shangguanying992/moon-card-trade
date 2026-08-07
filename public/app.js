@@ -795,7 +795,7 @@ async function renderAbout() {
       <h2 style="font-size:1.05rem">关于本站</h2>
       <p>「月谕圣牌交换站」是原神玩家的社区交换工具：登记 22 张圣牌持有、发布交换意向、满足条件即锁定、换完双方各自确认更新。数据由玩家自报，交换前请自行核对；本站与米哈游无关。</p>
       <h3 style="font-size:1rem;margin-top:16px">关于我</h3>
-      <p>B 站账号：<a href="https://search.bilibili.com/all?keyword=%E6%B1%9F%E9%A3%8E%E9%94%A6%E9%92%B0" target="_blank" rel="noopener">@江枫锦钰</a></p>
+      <p>B 站账号：<a href="https://space.bilibili.com/648817391" target="_blank" rel="noopener">@江枫锦钰</a></p>
       <p class="hint">有建议、发现数据问题，欢迎在 B 站私信我。</p>
     </div>
   `);
