@@ -1,0 +1,11 @@
+{
+  "name": "moon-card-trade",
+  "version": "0.1.0",
+  "private": true,
+  "description": "原神月谕圣牌交换平台（响应式网页 + 轻量后端）",
+  "scripts": {
+    "start": "node server/local.js",
+    "test": "node --no-warnings --test",
+    "check": "node --check server/app.js && node --check server/db-shim.js && node --check server/local.js && node --check server/index.js && node --check public/app.js"
+  }
+}

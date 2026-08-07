@@ -1,0 +1,12 @@
+name = "moon-card-trade-api"
+main = "server/index.js"
+compatibility_date = "2026-08-07"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "moon-card-trade"
+# 部署前替换为你的 D1 database_id（wrangler d1 create moon-card-trade 后可见）
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[vars]
+ADMIN_KEY = "change-me-admin-key"

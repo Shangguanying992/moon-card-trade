@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>月谕圣牌交换站</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="wrap topbar-inner">
+      <a class="brand" href="#/">🃏 月谕圣牌交换站</a>
+      <nav class="nav">
+        <a href="#/" data-nav="list">交换列表</a>
+        <a href="#/new" data-nav="new">发意向</a>
+        <a href="#/me" data-nav="me">我的档案</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="app" class="wrap">
+    <div class="loading">加载中…</div>
+  </main>
+
+  <footer class="wrap footer">
+    <p>本站为玩家社区工具，与米哈游无关 · 数据由玩家自报，交换前请自行核对 · <a href="#/admin">管理</a></p>
+    <p class="tip">新一期开始请记得更新你的持有记录，否则会从匹配中降权。</p>
+  </footer>
+
+  <script>
+    // 部署到 GitHub Pages 时，把后端地址填到这里（如 https://your-worker.workers.dev），本地开发留空即可
+    window.__API_BASE__ = '';
+  </script>
+  <script src="app.js"></script>
+</body>
+</html>
