@@ -53,6 +53,22 @@ npx wrangler deploy
 
 - 换后端地址 / 域名：只改 `public/config.js` 里的 `window.__API_BASE__`，再执行一次更新脚本即可。
 
+## 备选方案：国内手机网络无法访问 workers.dev
+
+如果手机网络打不开 `*.workers.dev`（大陆常见），把后端迁到境外小服务器（如腾讯云轻量香港，约 ¥30~40/月）：
+
+```bash
+# 1. 在服务器上装 Node.js ≥ 22（apt/nvm 均可）
+# 2. 本机执行部署脚本
+bash scripts/deploy-server.sh root@你的服务器IP
+
+# 3. 把 public/config.js 里的地址改成
+#    window.__API_BASE__ = 'http://你的服务器IP:8787';
+# 4. 改 ADMIN_KEY 并重启服务，安全组放行 8787 端口
+```
+
+部署材料在 `deploy/moon-card-trade.service` 与 `scripts/deploy-server.sh`。
+
 ## API 一览
 
 | 方法 | 路径 | 说明 |

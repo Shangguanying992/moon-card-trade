@@ -1,0 +1,17 @@
+[Unit]
+Description=Moon Card Trade API
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/moon-card-trade
+Environment=NODE_ENV=production
+Environment=PORT=8787
+Environment=DB_FILE=/opt/moon-card-trade/data.db
+Environment=ADMIN_KEY=change-this-to-a-long-random-string
+ExecStart=/usr/bin/node server/local.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
