@@ -875,13 +875,15 @@ window.addEventListener('hashchange', route);
   // 隐藏的管理入口：2 秒内连点站名 5 次进入 #/admin（页脚不再展示入口）
   let brandTaps = 0;
   let brandTapTimer = null;
-  document.querySelector('.brand').addEventListener('click', () => {
+  document.querySelector('.brand').addEventListener('click', (e) => {
+    e.preventDefault(); // 阻止锚点默认跳回 #/，覆盖我们设置的管理路由
     brandTaps += 1;
     clearTimeout(brandTapTimer);
     brandTapTimer = setTimeout(() => { brandTaps = 0; }, 2000);
     if (brandTaps >= 5) {
       brandTaps = 0;
       location.hash = '#/admin';
+      toast('已进入管理页', 'ok');
     }
   });
   route();
