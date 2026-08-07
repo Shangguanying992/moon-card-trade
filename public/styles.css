@@ -70,6 +70,40 @@ main { padding-top: 1.2rem; }
 }
 .filters label { font-size: .88rem; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; }
 
+.card-panel { margin-top: 12px; border-top: 1px dashed var(--border); padding-top: 12px; }
+.card-panel[hidden] { display: none; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.lack-toggle { font-size: .9rem; color: var(--text); display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.lack-toggle:has(input:disabled) { color: var(--muted); cursor: not-allowed; }
+.card-picker {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 8px;
+  max-height: 260px; overflow-y: auto; margin-top: 8px;
+}
+.pick-card {
+  position: relative; border: 1px solid var(--border); background: var(--card); color: var(--text);
+  border-radius: 10px; padding: 9px 4px 7px; display: flex; flex-direction: column; align-items: center;
+  gap: 2px; cursor: pointer; font-size: .76rem; font-family: inherit;
+}
+.pick-card .glyph { font-size: 1.15rem; }
+.pick-card i {
+  position: absolute; top: -5px; right: -4px; background: var(--accent2); color: #fff;
+  border-radius: 999px; min-width: 16px; height: 16px; font-size: .62rem; font-style: normal;
+  display: flex; align-items: center; justify-content: center; padding: 0 3px;
+}
+.pick-card:hover { border-color: var(--accent); }
+.pick-card.on { border-color: var(--accent); background: var(--accent-bg); box-shadow: 0 0 0 1px var(--accent); }
+.pick-card.on::after {
+  content: '✓'; position: absolute; top: -6px; left: -4px; background: var(--accent); color: #fff;
+  border-radius: 50%; width: 16px; height: 16px; font-size: .7rem;
+  display: flex; align-items: center; justify-content: center;
+}
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.chip {
+  background: var(--accent-bg); color: var(--accent2); border: 1px solid rgba(127,119,221,.35);
+  padding: 3px 10px; border-radius: 999px; font-size: .8rem; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;
+}
+.chip:hover { border-color: var(--accent); }
+
 .post-list { display: flex; flex-direction: column; gap: 10px; }
 .post {
   background: var(--card); border: 1px solid var(--border); border-radius: var(--r); padding: 12px 14px;

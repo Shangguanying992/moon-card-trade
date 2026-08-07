@@ -37,6 +37,10 @@ const state = {
   search: '',
   onlyFresh: false,
   countsDraft: null,
+  postsCache: null,
+  selectedCards: new Set(),
+  lackOnly: false,
+  panelOpen: false,
 };
 
 function ensureDevice() {
@@ -158,9 +162,13 @@ function currentRoute() {
 }
 
 /* ---------------- 列表 ---------------- */
-async function renderList() {
-  const data = await api('GET', '/api/posts');
-  let posts = data.posts || [];
+async function loadPosts() {
+  state.postsCache = await api('GET', '/api/posts');
+}
+
+async function renderList(refresh = false) {
+  if (refresh || !state.postsCache) await loadPosts();
+  let posts = state.postsCache.posts || [];
   if (state.serverTab !== 'all') posts = posts.filter((p) => p.server === state.serverTab);
   if (state.search) {
     const q = state.search.trim().toLowerCase();
@@ -170,6 +178,12 @@ async function renderList() {
     );
   }
   if (state.onlyFresh) posts = posts.filter((p) => !p.stale);
+  if (state.lackOnly && state.me) {
+    posts = posts.filter((p) => (state.me.collection[p.offered_card] || 0) === 0);
+  }
+  if (state.selectedCards.size) {
+    posts = posts.filter((p) => state.selectedCards.has(p.offered_card));
+  }
 
   const banners = [];
   if (state.me && state.me.stale) {
@@ -182,6 +196,32 @@ async function renderList() {
   const tabs = ['all', ...Object.keys(SERVERS)].map((s) =>
     `<button class="tab ${state.serverTab === s ? 'active' : ''}" data-tab="${s}">${s === 'all' ? '全部' : SERVERS[s]}</button>`
   ).join('');
+
+  const filterActive = state.lackOnly || state.selectedCards.size > 0;
+  const selectedChips = [...state.selectedCards]
+    .map((id) => `<span class="chip" data-chip="${id}" title="点击移除">${esc(card(id).name)} ✕</span>`)
+    .join('');
+  const cardPanel = `
+    <div id="card-panel" class="card-panel" ${state.panelOpen ? '' : 'hidden'}>
+      <div class="panel-head">
+        <label class="lack-toggle">
+          <input type="checkbox" id="lack-only" ${state.lackOnly ? 'checked' : ''} ${state.me ? '' : 'disabled'}>
+          只看我没有的牌${state.me ? '' : '（请先登记档案）'}
+        </label>
+        <div class="btn-row" style="margin:0">
+          <button class="btn small" id="clear-cards">清除</button>
+          <button class="btn small primary" id="done-cards">完成</button>
+        </div>
+      </div>
+      <p class="hint">点选任意数量的牌，列表只显示换出这些牌的帖子；与「只看我没有的」叠加生效。</p>
+      <div class="card-picker">
+        ${(state.cards || CARDS_FALLBACK).map((c) => `
+          <button class="pick-card ${state.selectedCards.has(c.id) ? 'on' : ''}" data-pick="${c.id}" style="background:linear-gradient(160deg,${c.theme}2e,transparent)">
+            <span class="glyph">${c.glyph}</span><span>${esc(c.name)}</span>
+            ${state.me ? `<i>${state.me.collection[c.id] || 0}</i>` : ''}
+          </button>`).join('')}
+      </div>
+    </div>`;
 
   const listHtml = posts.length
     ? posts.map((p) => `
@@ -199,17 +239,20 @@ async function renderList() {
           <span>已完成 ${p.completed_trades} 笔交换</span>
         </div>
       </a>`).join('')
-    : '<div class="empty">还没有符合条件的机会帖，去 <a href="#/new">发一个意向</a> 吧</div>';
+    : `<div class="empty">${filterActive ? '没有符合筛选条件的帖子，试试清除筛牌' : '还没有符合条件的机会帖，去 <a href="#/new">发一个意向</a> 吧'}</div>`;
 
   view(`
     ${banners.join('')}
     <div class="card-box">
       <div class="tabs">${tabs}</div>
       <div class="filters">
+        <button id="card-filter-btn" class="btn small ${filterActive ? 'primary' : ''}">筛牌${filterActive ? `（${state.selectedCards.size + (state.lackOnly ? 1 : 0)}）` : ''}</button>
         <input type="search" id="q" placeholder="搜索昵称 / 牌名" value="${esc(state.search)}">
         <label><input type="checkbox" id="fresh" ${state.onlyFresh ? 'checked' : ''}> 只看本月更新</label>
         <span class="hint" style="margin-left:auto">共 ${posts.length} 条 · 先到先得，申请后自动锁定</span>
       </div>
+      ${selectedChips ? `<div class="chips">${selectedChips}</div>` : ''}
+      ${cardPanel}
     </div>
     <div class="post-list">${listHtml}</div>
   `);
@@ -229,6 +272,33 @@ async function renderList() {
     state.onlyFresh = e.target.checked;
     renderList();
   });
+  document.getElementById('card-filter-btn').addEventListener('click', () => {
+    state.panelOpen = !state.panelOpen;
+    renderList();
+  });
+  document.getElementById('done-cards').addEventListener('click', () => {
+    state.panelOpen = false;
+    renderList();
+  });
+  document.getElementById('clear-cards').addEventListener('click', () => {
+    state.selectedCards.clear();
+    state.lackOnly = false;
+    renderList();
+  });
+  document.getElementById('lack-only').addEventListener('change', (e) => {
+    state.lackOnly = e.target.checked;
+    renderList();
+  });
+  document.querySelectorAll('[data-pick]').forEach((b) => b.addEventListener('click', () => {
+    const id = Number(b.dataset.pick);
+    if (state.selectedCards.has(id)) state.selectedCards.delete(id);
+    else state.selectedCards.add(id);
+    renderList();
+  }));
+  document.querySelectorAll('[data-chip]').forEach((b) => b.addEventListener('click', () => {
+    state.selectedCards.delete(Number(b.dataset.chip));
+    renderList();
+  }));
 }
 
 /* ---------------- 发帖 ---------------- */
@@ -697,7 +767,7 @@ async function apiWithKey(method, path, key, body) {
 async function route() {
   const r = currentRoute();
   try {
-    if (r.name === 'list') return await renderList();
+    if (r.name === 'list') return await renderList(true);
     if (r.name === 'new') return await renderNew();
     if (r.name === 'post') return await renderPost(r.id);
     if (r.name === 'me') return await renderMe();
