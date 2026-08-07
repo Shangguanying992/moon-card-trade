@@ -789,6 +789,18 @@ async function renderAdmin() {
   }));
 }
 
+async function renderAbout() {
+  view(`
+    <div class="card-box">
+      <h2 style="font-size:1.05rem">关于本站</h2>
+      <p>「月谕圣牌交换站」是原神玩家的社区交换工具：登记 22 张圣牌持有、发布交换意向、满足条件即锁定、换完双方各自确认更新。数据由玩家自报，交换前请自行核对；本站与米哈游无关。</p>
+      <h3 style="font-size:1rem;margin-top:16px">关于我</h3>
+      <p>B 站账号：<a href="https://search.bilibili.com/all?keyword=%E6%B1%9F%E9%A3%8E%E9%94%A6%E9%92%B0" target="_blank" rel="noopener">@江枫锦钰</a></p>
+      <p class="hint">有建议、发现数据问题，欢迎在 B 站私信我。</p>
+    </div>
+  `);
+}
+
 async function apiWithKey(method, path, key, body) {
   const headers = { 'x-admin-key': key };
   if (body !== undefined) headers['content-type'] = 'application/json';
@@ -808,6 +820,7 @@ async function route() {
     if (r.name === 'post') return await renderPost(r.id);
     if (r.name === 'me') return await renderMe();
     if (r.name === 'admin') return await renderAdmin();
+    if (r.name === 'about') return await renderAbout();
     view('<div class="card-box"><p class="err">页面不存在</p></div>');
   } catch (err) {
     view(`<div class="card-box"><p class="err">${esc(err.message)}</p><a class="btn" href="#/">返回列表</a></div>`);
@@ -859,5 +872,17 @@ window.addEventListener('hashchange', route);
 (async function init() {
   await loadBase();
   await loadMe(true);
+  // 隐藏的管理入口：2 秒内连点站名 5 次进入 #/admin（页脚不再展示入口）
+  let brandTaps = 0;
+  let brandTapTimer = null;
+  document.querySelector('.brand').addEventListener('click', () => {
+    brandTaps += 1;
+    clearTimeout(brandTapTimer);
+    brandTapTimer = setTimeout(() => { brandTaps = 0; }, 2000);
+    if (brandTaps >= 5) {
+      brandTaps = 0;
+      location.hash = '#/admin';
+    }
+  });
   route();
 })();

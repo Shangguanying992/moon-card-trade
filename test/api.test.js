@@ -405,6 +405,26 @@ test('报告与管理员', async (t) => {
     const mine = await call(app, 'GET', '/api/posts?mine=1', { device: DEV_A });
     assert.equal(mine.json.posts.find((p) => p.id === post.id).status, 'closed');
   });
+
+  await t.test('管理密钥连续失败后触发限流', async () => {
+    const { app } = await seedPost();
+    for (let i = 0; i < 10; i++) {
+      const r = await call(app, 'GET', '/api/admin/reports', { adminKey: 'wrong-key-' + i });
+      assert.equal(r.status, 403);
+    }
+    const blocked = await call(app, 'GET', '/api/admin/reports', { adminKey: 'test-admin-key' });
+    assert.equal(blocked.status, 429);
+    assert.match(blocked.json.error, /尝试/);
+  });
+
+  await t.test('正确密钥成功后重置失败计数', async () => {
+    const { app } = await seedPost();
+    for (let i = 0; i < 3; i++) {
+      await call(app, 'GET', '/api/admin/reports', { adminKey: 'wrong-' + i });
+    }
+    assert.equal((await call(app, 'GET', '/api/admin/reports', { adminKey: 'test-admin-key' })).status, 200);
+    assert.equal((await call(app, 'GET', '/api/admin/reports', { adminKey: 'test-admin-key' })).status, 200);
+  });
 });
 
 test('周期与过期', async (t) => {

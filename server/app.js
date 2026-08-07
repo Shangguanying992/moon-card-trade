@@ -11,6 +11,8 @@ const SERVERS = {
 const DEVICE_RE = /^[A-Za-z0-9_-]{8,128}$/;
 const REPORT_REASONS = ['已完成', '信息过期', '信息不实', '争议'];
 const NICKNAME_COOLDOWN_MS = 30 * 24 * 3600 * 1000;
+const ADMIN_MAX_FAILS = 10;
+const ADMIN_WINDOW_MS = 15 * 60 * 1000;
 
 function isCard(id) {
   return Number.isInteger(id) && id >= 1 && id <= 22;
@@ -37,10 +39,11 @@ class HttpError extends Error {
   }
 }
 
-function createApp({ db, adminKey = 'change-me-admin-key', now }) {
+  function createApp({ db, adminKey = 'change-me-admin-key', now }) {
   const current = now || new Date();
   const period = periodOf(current);
   const nowIso = current.toISOString();
+  const adminFails = new Map();
 
   function json(status, body) {
     return new Response(JSON.stringify(body), {
@@ -618,7 +621,22 @@ function createApp({ db, adminKey = 'change-me-admin-key', now }) {
 
   function requireAdmin(request) {
     const key = (request.headers.get('x-admin-key') || '').trim();
-    if (!key || key !== adminKey) throw new HttpError(403, '管理员密钥无效');
+    const ip = request.headers.get('cf-connecting-ip') || request.headers.get('x-forwarded-for') || 'local';
+    const bucket = `${ip}|${request.headers.get('x-device-id') || ''}`;
+    const rec = adminFails.get(bucket);
+    if (rec && current.getTime() < rec.resetAt && rec.count >= ADMIN_MAX_FAILS) {
+      throw new HttpError(429, '尝试次数过多，请 15 分钟后再试');
+    }
+    if (!key || key !== adminKey) {
+      const nowMs = current.getTime();
+      if (!rec || nowMs >= rec.resetAt) {
+        adminFails.set(bucket, { count: 1, resetAt: nowMs + ADMIN_WINDOW_MS });
+      } else {
+        adminFails.set(bucket, { count: rec.count + 1, resetAt: rec.resetAt });
+      }
+      throw new HttpError(403, '管理员密钥无效');
+    }
+    adminFails.delete(bucket);
   }
 
   async function adminListReports(request) {
