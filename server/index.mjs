@@ -6,4 +6,9 @@ export default {
     const app = createApp({ db: env.DB, adminKey: env.ADMIN_KEY || 'change-me-admin-key' });
     return app.handle(request);
   },
+  // 每 5 分钟预热一次，减少空闲后首个请求的冷启动延迟
+  async scheduled(event, env, ctx) {
+    const app = createApp({ db: env.DB, adminKey: env.ADMIN_KEY || 'change-me-admin-key' });
+    await app.handle(new Request('https://internal/api/cards'));
+  },
 };
