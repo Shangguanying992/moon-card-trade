@@ -669,7 +669,8 @@ class HttpError extends Error {
 
   async function stats() {
     await expireOldPosts();
-    const playersTotal = Number(await db.prepare('SELECT COUNT(*) AS c FROM players').first().c);
+    const playersRow = await db.prepare('SELECT COUNT(*) AS c FROM players').first();
+    const playersTotal = Number(playersRow ? playersRow.c : 0);
     const rows = (await db.prepare(
       `SELECT card_id,
               SUM(CASE WHEN count = 0 THEN 1 ELSE 0 END) AS missing,

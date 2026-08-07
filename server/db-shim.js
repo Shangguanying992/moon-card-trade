@@ -80,14 +80,14 @@ class Statement {
   bind(...params) {
     return new Statement(this.raw, this.sql, params);
   }
-  all() {
+  async all() {
     // 与 Cloudflare D1 的返回形状保持一致：{ results: [...] }
     return { results: this.raw.prepare(this.sql).all(...this.params) };
   }
-  first() {
+  async first() {
     return this.raw.prepare(this.sql).get(...this.params);
   }
-  run() {
+  async run() {
     const r = this.raw.prepare(this.sql).run(...this.params);
     return { meta: { changes: Number(r.changes), lastInsertRowid: r.lastInsertRowid } };
   }

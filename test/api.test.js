@@ -504,3 +504,14 @@ test('昵称修改（30 天冷却）', async (t) => {
     assert.equal(me.json.player.nickname, '原名');
   });
 });
+
+test('统计接口', async (t) => {
+  await t.test('total_players 统计已登记玩家数', async () => {
+    const { app } = await setup();
+    await register(app, DEV_A, OFFICIAL_A);
+    await register(app, DEV_B, OFFICIAL_B);
+    const r = await call(app, 'GET', '/api/stats');
+    assert.equal(r.status, 200);
+    assert.equal(r.json.total_players, 2);
+  });
+});
