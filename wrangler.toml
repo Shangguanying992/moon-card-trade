@@ -5,6 +5,11 @@ compatibility_date = "2026-08-07"
 [triggers]
 crons = ["*/5 * * * *"]
 
+# 方案二：自定义域名（域名接入 Cloudflare 后，把 api.你的域名.com 换成真实域名并去掉注释）
+# routes = [
+#   { pattern = "api.你的域名.com", custom_domain = true }
+# ]
+
 [[d1_databases]]
 binding = "DB"
 database_name = "moon-card-trade"
