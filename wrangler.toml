@@ -1,6 +1,7 @@
 name = "moon-card-trade-api"
 main = "server/index.mjs"
 compatibility_date = "2026-08-07"
+workers_dev = true
 
 routes = [
   { pattern = "api.mooncard.top", custom_domain = true }
