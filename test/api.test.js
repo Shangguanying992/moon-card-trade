@@ -515,3 +515,71 @@ test('统计接口', async (t) => {
     assert.equal(r.json.total_players, 2);
   });
 });
+
+test('管理数据操作', async (t) => {
+  async function seed() {
+    const { app } = await setup();
+    await register(app, DEV_A, OFFICIAL_A, 'official', '阿伟');
+    await setCollection(app, DEV_A, { 1: 2 });
+    const post = await createPost(app, DEV_A, { offered_card: 1, want_mode: 'any' });
+    await register(app, DEV_B, OFFICIAL_B, 'official', '小美');
+    await setCollection(app, DEV_B, { 2: 1 });
+    await call(app, 'POST', `/api/posts/${post.json.post.id}/applications`, { device: DEV_B, body: { provided_card: 2 } });
+    return { app, post: post.json.post };
+  }
+
+  await t.test('无密钥不能访问管理数据接口', async () => {
+    const { app } = await seed();
+    assert.equal((await call(app, 'GET', '/api/admin/players')).status, 403);
+    assert.equal((await call(app, 'GET', '/api/admin/posts')).status, 403);
+    assert.equal((await call(app, 'DELETE', '/api/admin/players/official/111111111')).status, 403);
+  });
+
+  await t.test('玩家列表支持按昵称/UID 搜索', async () => {
+    const { app } = await seed();
+    const all = await call(app, 'GET', '/api/admin/players', { adminKey: 'test-admin-key' });
+    assert.equal(all.status, 200);
+    assert.equal(all.json.players.length, 2);
+    const q = await call(app, 'GET', '/api/admin/players?q=小美', { adminKey: 'test-admin-key' });
+    assert.equal(q.json.players.length, 1);
+    assert.equal(q.json.players[0].nickname, '小美');
+    const byUid = await call(app, 'GET', `/api/admin/players?q=${OFFICIAL_A}`, { adminKey: 'test-admin-key' });
+    assert.equal(byUid.json.players[0].uid, OFFICIAL_A);
+  });
+
+  await t.test('删除玩家级联清理帖子/申请/持有并留审计快照', async () => {
+    const { app } = await seed();
+    const del = await call(app, 'DELETE', '/api/admin/players/official/111111111', { adminKey: 'test-admin-key' });
+    assert.equal(del.status, 200);
+    assert.equal(del.json.deleted.posts, 1);
+    const list = await call(app, 'GET', '/api/admin/players', { adminKey: 'test-admin-key' });
+    assert.equal(list.json.players.length, 1);
+    assert.equal((await call(app, 'GET', '/api/posts')).json.posts.length, 0);
+    const audit = await call(app, 'GET', '/api/admin/audit', { adminKey: 'test-admin-key' });
+    assert.equal(audit.json.audits[0].reason, 'admin_delete');
+    const meB = await call(app, 'GET', '/api/me', { device: DEV_B });
+    assert.equal(meB.json.applications.length, 0);
+  });
+
+  await t.test('删除帖子连带删除其申请', async () => {
+    const { app, post } = await seed();
+    const del = await call(app, 'DELETE', `/api/admin/posts/${post.id}`, { adminKey: 'test-admin-key' });
+    assert.equal(del.status, 200);
+    assert.equal(del.json.deleted.applications, 1);
+    const posts = await call(app, 'GET', '/api/admin/posts', { adminKey: 'test-admin-key' });
+    assert.equal(posts.json.posts.length, 0);
+  });
+
+  await t.test('审计快照可恢复玩家档案', async () => {
+    const { app } = await seed();
+    await call(app, 'DELETE', '/api/admin/players/official/111111111', { adminKey: 'test-admin-key' });
+    const audit = await call(app, 'GET', '/api/admin/audit', { adminKey: 'test-admin-key' });
+    const id = audit.json.audits[0].id;
+    const restore = await call(app, 'POST', `/api/admin/audit/${id}/restore`, { adminKey: 'test-admin-key' });
+    assert.equal(restore.status, 200);
+    assert.equal(restore.json.player.nickname, '阿伟');
+    assert.equal(restore.json.collection[1], 2);
+    const again = await call(app, 'POST', `/api/admin/audit/${id}/restore`, { adminKey: 'test-admin-key' });
+    assert.equal(again.status, 409);
+  });
+});

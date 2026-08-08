@@ -227,10 +227,12 @@ class HttpError extends Error {
       // 同设备重复登记是幂等操作：不悄悄改昵称（昵称走 PATCH /api/players/me/nickname，带 30 天冷却）
     } else if (existing) {
       takeover = true;
-      const snapshot = {
+    const snapshot = {
         nickname: existing.nickname,
+        device_hash: existing.device_hash,
         completed_trades: Number(existing.completed_trades),
         last_update_period: existing.last_update_period,
+        created_at: existing.created_at,
         collection: await getCounts(server, uid),
       };
       await db.prepare(
@@ -692,6 +694,113 @@ class HttpError extends Error {
     return json(200, { report: fresh });
   }
 
+  async function adminListPlayers(request) {
+    requireAdmin(request);
+    const q = new URL(request.url).searchParams.get('q') || '';
+    const like = `%${q}%`;
+    const rows = (await db.prepare(
+      `SELECT p.server, p.uid, p.nickname, p.last_update_period, p.completed_trades, p.created_at,
+              (SELECT COUNT(*) FROM posts po WHERE po.owner_server = p.server AND po.owner_uid = p.uid) AS posts
+       FROM players p
+       WHERE ? = '' OR p.nickname LIKE ? OR p.uid LIKE ?
+       ORDER BY p.created_at DESC`
+    ).bind(q, like, like).all()).results;
+    return json(200, { players: rows.map((r) => ({ ...r, completed_trades: Number(r.completed_trades), posts: Number(r.posts) })) });
+  }
+
+  async function adminDeletePlayer(request, server, uid) {
+    requireAdmin(request);
+    const player = await getPlayer(server, uid);
+    if (!player) throw new HttpError(404, '玩家不存在');
+    const snapshot = {
+      nickname: player.nickname,
+      device_hash: player.device_hash,
+      completed_trades: Number(player.completed_trades),
+      last_update_period: player.last_update_period,
+      created_at: player.created_at,
+      collection: await getCounts(server, uid),
+    };
+    await db.prepare('INSERT INTO audit (server, uid, snapshot, reason, created_at) VALUES (?, ?, ?, ?, ?)')
+      .bind(server, uid, JSON.stringify(snapshot), 'admin_delete', nowIso).run();
+    const ownPosts = (await db.prepare('SELECT id FROM posts WHERE owner_server = ? AND owner_uid = ?').bind(server, uid).all()).results;
+    let appDeleted = 0;
+    for (const p of ownPosts) {
+      appDeleted += Number((await db.prepare('DELETE FROM applications WHERE post_id = ?').bind(p.id).run()).meta.changes);
+    }
+    const postDeleted = Number((await db.prepare('DELETE FROM posts WHERE owner_server = ? AND owner_uid = ?').bind(server, uid).run()).meta.changes);
+    appDeleted += Number((await db.prepare('DELETE FROM applications WHERE applicant_server = ? AND applicant_uid = ?').bind(server, uid).run()).meta.changes);
+    const cardsDeleted = Number((await db.prepare('DELETE FROM card_counts WHERE server = ? AND uid = ?').bind(server, uid).run()).meta.changes);
+    await db.prepare('DELETE FROM players WHERE server = ? AND uid = ?').bind(server, uid).run();
+    return json(200, { deleted: { posts: postDeleted, applications: appDeleted, card_counts: cardsDeleted } });
+  }
+
+  async function adminListPosts(request) {
+    requireAdmin(request);
+    const q = new URL(request.url).searchParams.get('q') || '';
+    const like = `%${q}%`;
+    const rows = (await db.prepare(
+      `SELECT p.*, pl.nickname,
+              (SELECT COUNT(*) FROM applications a WHERE a.post_id = p.id) AS applications
+       FROM posts p JOIN players pl ON pl.server = p.owner_server AND pl.uid = p.owner_uid
+       WHERE ? = '' OR CAST(? AS INTEGER) = p.id OR pl.nickname LIKE ? OR pl.uid LIKE ?
+       ORDER BY p.id DESC`
+    ).bind(q, q, like, like).all()).results;
+    return json(200, { posts: rows.map((r) => ({ ...r, applications: Number(r.applications), remind_poster: Number(r.remind_poster) })) });
+  }
+
+  async function adminDeletePost(request, postId) {
+    requireAdmin(request);
+    const row = await postRow(postId);
+    if (!row) throw new HttpError(404, '帖子不存在');
+    const appDeleted = Number((await db.prepare('DELETE FROM applications WHERE post_id = ?').bind(postId).run()).meta.changes);
+    await db.prepare('DELETE FROM posts WHERE id = ?').bind(postId).run();
+    return json(200, { deleted: { posts: 1, applications: appDeleted } });
+  }
+
+  async function adminListAudit(request) {
+    requireAdmin(request);
+    const rows = (await db.prepare('SELECT id, server, uid, snapshot, reason, created_at FROM audit ORDER BY id DESC').all()).results;
+    return json(200, { audits: rows.map((r) => {
+      let snap = {};
+      try { snap = JSON.parse(r.snapshot); } catch { /* 忽略损坏快照 */ }
+      return { id: r.id, server: r.server, uid: r.uid, reason: r.reason, created_at: r.created_at, snapshot: snap };
+    }) });
+  }
+
+  async function adminRestoreAudit(request, auditId) {
+    requireAdmin(request);
+    const audit = await db.prepare('SELECT * FROM audit WHERE id = ?').bind(auditId).first();
+    if (!audit) throw new HttpError(404, '审计记录不存在');
+    if (await getPlayer(audit.server, audit.uid)) throw new HttpError(409, '该玩家已存在，无法恢复');
+    let snap = {};
+    try { snap = JSON.parse(audit.snapshot); } catch { /* 空快照按默认恢复 */ }
+    let deviceHash = snap.device_hash;
+    if (!deviceHash) {
+      deviceHash = '';
+      for (let i = 0; i < 64; i++) deviceHash += Math.floor(Math.random() * 16).toString(16);
+    }
+    const nickname = snap.nickname || '已恢复';
+    const lastUpdate = snap.last_update_period || period;
+    const completed = Number(snap.completed_trades) || 0;
+    const createdAt = snap.created_at || nowIso;
+    await db.prepare(
+      `INSERT INTO players (server, uid, nickname, device_hash, last_update_period, nickname_updated_at, completed_trades, created_at)
+       VALUES (?, ?, ?, ?, ?, NULL, ?, ?)`
+    ).bind(audit.server, audit.uid, nickname, deviceHash, lastUpdate, completed, createdAt).run();
+    const coll = snap.collection || {};
+    for (const id of CARD_IDS) {
+      const v = Number(coll[id]) || 0;
+      await db.prepare(
+        `INSERT INTO card_counts (server, uid, card_id, count) VALUES (?, ?, ?, ?)
+         ON CONFLICT(server, uid, card_id) DO UPDATE SET count = excluded.count`
+      ).bind(audit.server, audit.uid, id, v).run();
+    }
+    return json(200, {
+      player: playerPublic(await getPlayer(audit.server, audit.uid)),
+      collection: await getCounts(audit.server, audit.uid),
+    });
+  }
+
   async function stats() {
     await expireOldPosts();
     const playersRow = await db.prepare('SELECT COUNT(*) AS c FROM players').first();
@@ -741,6 +850,15 @@ class HttpError extends Error {
       if (method === 'GET' && path === '/api/admin/reports') return await adminListReports(request);
       m = path.match(/^\/api\/admin\/reports\/(\d+)\/resolve$/);
       if (method === 'POST' && m) return await adminResolveReport(request, Number(m[1]));
+      if (method === 'GET' && path === '/api/admin/players') return await adminListPlayers(request);
+      m = path.match(/^\/api\/admin\/players\/(official|bili|overseas)\/(\d+)$/);
+      if (method === 'DELETE' && m) return await adminDeletePlayer(request, m[1], m[2]);
+      if (method === 'GET' && path === '/api/admin/posts') return await adminListPosts(request);
+      m = path.match(/^\/api\/admin\/posts\/(\d+)$/);
+      if (method === 'DELETE' && m) return await adminDeletePost(request, Number(m[1]));
+      if (method === 'GET' && path === '/api/admin/audit') return await adminListAudit(request);
+      m = path.match(/^\/api\/admin\/audit\/(\d+)\/restore$/);
+      if (method === 'POST' && m) return await adminRestoreAudit(request, Number(m[1]));
       return json(404, { error: '接口不存在' });
     } catch (e) {
       if (e instanceof HttpError) return json(e.status, { error: e.error });

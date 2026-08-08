@@ -41,6 +41,9 @@ const state = {
   selectedCards: new Set(),
   lackOnly: false,
   panelOpen: false,
+  adminTab: 'reports',
+  adminPlayerQ: '',
+  adminPostQ: '',
 };
 
 function ensureDevice() {
@@ -771,27 +774,94 @@ function renderMeView() {
 }
 
 /* ---------------- 管理员 ---------------- */
+const ADMIN_TABS = { reports: '报告', players: '玩家', posts: '帖子', audit: '审计' };
+
+async function adminReportsHtml(key) {
+  const res = await apiWithKey('GET', '/api/admin/reports', key);
+  if (!res.reports.length) return '<p class="empty">暂无报告</p>';
+  return `<table class="mini"><tr><th>ID</th><th>目标</th><th>原因</th><th>状态</th><th>操作</th></tr>
+    ${res.reports.map((r) => `<tr>
+      <td>${r.id}</td>
+      <td>${r.target_type === 'post' ? `帖 ${r.target_id}` : `玩家 ${r.target_id}`}${r.post_status ? `（${r.post_status}）` : ''}</td>
+      <td>${esc(r.reason)}</td>
+      <td>${r.status === 'pending' ? '<span class="badge pending">待处理</span>' : '<span class="badge muted">已处理</span>'}</td>
+      <td>${r.status === 'pending'
+        ? `<button class="btn small" data-resolve="${r.id}" data-action="dismiss">驳回</button>
+           ${r.target_type === 'post' ? `<button class="btn small danger" data-resolve="${r.id}" data-action="close_post">关闭帖子</button>` : ''}`
+        : '—'}</td>
+    </tr>`).join('')}</table>`;
+}
+
+async function adminPlayersHtml(key) {
+  const q = state.adminPlayerQ || '';
+  const res = await apiWithKey('GET', `/api/admin/players?q=${encodeURIComponent(q)}`, key);
+  if (!res.players.length) return `<div class="filters"><input type="search" id="ap-q" placeholder="按昵称/UID 搜索" value="${esc(q)}"><button class="btn small" id="ap-search">搜索</button></div><p class="empty">没有玩家</p>`;
+  return `<div class="filters">
+      <input type="search" id="ap-q" placeholder="按昵称/UID 搜索" value="${esc(q)}">
+      <button class="btn small" id="ap-search">搜索</button>
+    </div>
+    <table class="mini"><tr><th>服务器</th><th>UID</th><th>昵称</th><th>帖子</th><th>完成</th><th>最后更新</th><th>操作</th></tr>
+    ${res.players.map((p) => `<tr>
+      <td>${SERVERS[p.server] || p.server}</td>
+      <td>${esc(p.uid)}</td>
+      <td>${esc(p.nickname)}</td>
+      <td>${p.posts}</td>
+      <td>${p.completed_trades}</td>
+      <td>${esc(p.last_update_period)}</td>
+      <td><button class="btn small danger" data-del-player="${p.server}|${p.uid}" data-nick="${esc(p.nickname)}">删除</button></td>
+    </tr>`).join('')}</table>`;
+}
+
+async function adminPostsHtml(key) {
+  const q = state.adminPostQ || '';
+  const res = await apiWithKey('GET', `/api/admin/posts?q=${encodeURIComponent(q)}`, key);
+  if (!res.posts.length) return `<div class="filters"><input type="search" id="apost-q" placeholder="按帖子ID/昵称/UID 搜索" value="${esc(q)}"><button class="btn small" id="apost-search">搜索</button></div><p class="empty">没有帖子</p>`;
+  return `<div class="filters">
+      <input type="search" id="apost-q" placeholder="按帖子ID/昵称/UID 搜索" value="${esc(q)}">
+      <button class="btn small" id="apost-search">搜索</button>
+    </div>
+    <table class="mini"><tr><th>ID</th><th>发帖人</th><th>内容</th><th>状态</th><th>申请</th><th>期</th><th>操作</th></tr>
+    ${res.posts.map((p) => `<tr>
+      <td>${p.id}</td>
+      <td>${esc(p.nickname)}（${esc(p.owner_uid)}）</td>
+      <td>${esc(card(p.offered_card).name)} → ${p.want_mode === 'specific' ? esc(card(p.wanted_card).name) : '任意缺牌'}</td>
+      <td>${statusBadge(p.status)}</td>
+      <td>${p.applications}</td>
+      <td>${esc(p.period)}</td>
+      <td><button class="btn small danger" data-del-post="${p.id}">删除</button></td>
+    </tr>`).join('')}</table>`;
+}
+
+async function adminAuditHtml(key) {
+  const res = await apiWithKey('GET', '/api/admin/audit', key);
+  if (!res.audits.length) return '<p class="empty">暂无审计记录</p>';
+  return `<table class="mini"><tr><th>ID</th><th>UID</th><th>原因</th><th>快照</th><th>时间</th><th>操作</th></tr>
+    ${res.audits.map((a) => {
+      const snap = a.snapshot || {};
+      const hasColl = snap.collection && Object.values(snap.collection).some((v) => v > 0);
+      return `<tr>
+        <td>${a.id}</td>
+        <td>${esc(a.server)} / ${esc(a.uid)}</td>
+        <td>${esc(a.reason)}</td>
+        <td>${esc(snap.nickname || '')}${hasColl ? '（含持有）' : ''}</td>
+        <td>${fmtTime(a.created_at)}</td>
+        <td><button class="btn small" data-restore="${a.id}" ${a.reason === 'admin_delete' ? '' : 'disabled'}>恢复</button></td>
+      </tr>`;
+    }).join('')}</table>`;
+}
+
 async function renderAdmin() {
   const key = sessionStorage.getItem('mct_admin_key') || '';
-  let reportsHtml = '<p class="empty">输入管理员密钥后查看</p>';
+  const tab = state.adminTab || 'reports';
+  let bodyHtml = '<p class="empty">输入管理员密钥后查看</p>';
   if (key) {
     try {
-      const res = await apiWithKey('GET', '/api/admin/reports', key);
-      reportsHtml = res.reports.length
-        ? `<table class="mini"><tr><th>ID</th><th>目标</th><th>原因</th><th>状态</th><th>操作</th></tr>
-          ${res.reports.map((r) => `<tr>
-            <td>${r.id}</td>
-            <td>${r.target_type === 'post' ? `帖 ${r.target_id}` : `玩家 ${r.target_id}`}${r.post_status ? `（${r.post_status}）` : ''}</td>
-            <td>${esc(r.reason)}</td>
-            <td>${statusBadge(r.status === 'pending' ? 'matched' : r.status === 'resolved' ? 'closed' : 'open')}</td>
-            <td>${r.status === 'pending'
-              ? `<button class="btn small" data-resolve="${r.id}" data-action="dismiss">驳回</button>
-                 ${r.target_type === 'post' ? `<button class="btn small danger" data-resolve="${r.id}" data-action="close_post">关闭帖子</button>` : ''}`
-              : '已处理'}</td>
-          </tr>`).join('')}</table>`
-        : '<p class="empty">暂无待处理报告</p>';
+      bodyHtml = tab === 'reports' ? await adminReportsHtml(key)
+        : tab === 'players' ? await adminPlayersHtml(key)
+        : tab === 'posts' ? await adminPostsHtml(key)
+        : await adminAuditHtml(key);
     } catch (err) {
-      reportsHtml = `<p class="err">${esc(err.message)}</p>`;
+      bodyHtml = `<p class="err">${esc(err.message)}</p>`;
     }
   }
   view(`
@@ -802,16 +872,67 @@ async function renderAdmin() {
         <button class="btn" id="admin-load">加载</button>
       </div>
       <div id="admin-msg"></div>
-      <div style="margin-top:12px">${reportsHtml}</div>
+      <div class="tabs">
+        ${Object.entries(ADMIN_TABS).map(([k, label]) => `<button class="tab ${tab === k ? 'active' : ''}" data-atab="${k}">${label}</button>`).join('')}
+      </div>
+      <div style="margin-top:12px">${bodyHtml}</div>
     </div>
   `);
   document.getElementById('admin-load').addEventListener('click', () => {
     sessionStorage.setItem('mct_admin_key', document.getElementById('admin-key').value);
     renderAdmin();
   });
+  document.querySelectorAll('[data-atab]').forEach((b) => b.addEventListener('click', () => {
+    state.adminTab = b.dataset.atab;
+    renderAdmin();
+  }));
+  const pq = document.getElementById('ap-search');
+  if (pq) {
+    const doSearch = () => { state.adminPlayerQ = document.getElementById('ap-q').value; renderAdmin(); };
+    pq.addEventListener('click', doSearch);
+    document.getElementById('ap-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+  }
+  const poq = document.getElementById('apost-search');
+  if (poq) {
+    const doSearch = () => { state.adminPostQ = document.getElementById('apost-q').value; renderAdmin(); };
+    poq.addEventListener('click', doSearch);
+    document.getElementById('apost-q').addEventListener('keydown', (e) => { if (e.key === 'Enter') doSearch(); });
+  }
   document.querySelectorAll('[data-resolve]').forEach((b) => b.addEventListener('click', async () => {
     try {
       await apiWithKey('POST', `/api/admin/reports/${b.dataset.resolve}/resolve`, key, { action: b.dataset.action });
+      toast('已处理', 'ok');
+      renderAdmin();
+    } catch (err) {
+      document.getElementById('admin-msg').innerHTML = `<span class="err">${esc(err.message)}</span>`;
+    }
+  }));
+  document.querySelectorAll('[data-del-player]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm(`确认删除玩家「${b.dataset.nick}」？持有/帖子/申请将一并删除（可审计恢复）`)) return;
+    const [server, uid] = b.dataset.delPlayer.split('|');
+    try {
+      const res = await apiWithKey('DELETE', `/api/admin/players/${server}/${uid}`, key);
+      toast(`已删除：${res.deleted.posts} 帖 / ${res.deleted.applications} 申请`, 'ok');
+      renderAdmin();
+    } catch (err) {
+      document.getElementById('admin-msg').innerHTML = `<span class="err">${esc(err.message)}</span>`;
+    }
+  }));
+  document.querySelectorAll('[data-del-post]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm(`确认删除帖子 ${b.dataset.delPost}？其申请将一并删除`)) return;
+    try {
+      await apiWithKey('DELETE', `/api/admin/posts/${b.dataset.delPost}`, key);
+      toast('帖子已删除', 'ok');
+      renderAdmin();
+    } catch (err) {
+      document.getElementById('admin-msg').innerHTML = `<span class="err">${esc(err.message)}</span>`;
+    }
+  }));
+  document.querySelectorAll('[data-restore]').forEach((b) => b.addEventListener('click', async () => {
+    if (!confirm('确认恢复该快照？仅当该 UID 当前不存在时有效')) return;
+    try {
+      await apiWithKey('POST', `/api/admin/audit/${b.dataset.restore}/restore`, key);
+      toast('已恢复', 'ok');
       renderAdmin();
     } catch (err) {
       document.getElementById('admin-msg').innerHTML = `<span class="err">${esc(err.message)}</span>`;
